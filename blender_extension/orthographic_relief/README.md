@@ -10,10 +10,16 @@ The extension performs four explicit steps when the user presses **Generate Reli
 3. Rebuild the image as a single-valued height field on a closed base.
 4. Add a Corrective Smooth modifier restricted to the relief surface.
 
+**Base Shape** defaults to **Source Silhouette**. This trims the front, back,
+and side wall to the projected outline of the source mesh, so an apple produces
+an apple-shaped relief instead of an apple on a rectangular plaque. Choose
+**Rectangle** to retain the original plaque output.
+
 The longest-axis depth resolution can be set as high as 1024. Aspect fitting is
 enabled by default so non-square sources retain full detail without generating a
-needlessly square million-vertex mesh. Resolution 1024 can still create about
-1.05 million vertices for a square source, so 512 is the recommended default.
+needlessly square mesh. A silhouette solid needs front and back vertices, so a
+fully occupied square image at resolution 1024 can approach 2.1 million vertices.
+Resolution 512 is the recommended default.
 
 ## Use
 

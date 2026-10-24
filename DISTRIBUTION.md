@@ -2,10 +2,11 @@
 
 ## 配布ファイル
 
-配布するファイルは次の1点です。
+配布する本体と検証用チェックサムは次の2点です。
 
 ```text
-dist/orthographic_relief-1.1.0.zip
+dist/orthographic_relief-1.2.0.zip
+dist/orthographic_relief-1.2.0.zip.sha256
 ```
 
 Blender 5.2.3 LTSの公式Extensionビルダーで生成し、完成ZIPを公式バリデーターで検証しています。対象はBlender 5.2.0以降です。
@@ -24,11 +25,11 @@ MCPサーバー、TCPソケット、ネットワーク接続、テレメトリ�
 1. Blender 5.2以降を起動します。
 2. `Edit` → `Preferences` → `Get Extensions` を開きます。
 3. 右上メニューから `Install from Disk...` を選びます。
-4. `orthographic_relief-1.1.0.zip` を指定します。
+4. `orthographic_relief-1.2.0.zip` を指定します。
 5. 3D Viewでメッシュを選択し、`N` パネル → `Relief` を開きます。
-6. 投影方向や寸法を設定して `Generate Relief` を押します。
+6. `Base Shape` は通常 `Source Silhouette` のまま、投影方向や寸法を設定して `Generate Relief` を押します。
 
-アンダーカットなしの保証は選択した投影方向に対して適用されます。
+`Source Silhouette` は元メッシュの投影外形に沿った背面と側壁を持つ閉じたソリッドを作ります。従来の矩形プレートが必要な場合は `Rectangle` を選択します。アンダーカットなしの保証は選択した投影方向に対して適用されます。
 
 ## 配布ZIPの再ビルド
 
@@ -36,7 +37,7 @@ MCPサーバー、TCPソケット、ネットワーク接続、テレメトリ�
 powershell -ExecutionPolicy Bypass -File .\scripts\build_manual_extension.ps1
 ```
 
-スクリプトはソース検証、ZIP生成、完成ZIP検証を順に実行します。Blenderの場所が異なる場合:
+スクリプトはソース検証、ZIP生成、完成ZIP検証、SHA-256ファイル生成を順に実行します。Blenderの場所が異なる場合:
 
 ```powershell
 .\scripts\build_manual_extension.ps1 -BlenderPath "C:\path\to\blender.exe"

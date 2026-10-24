@@ -26,6 +26,7 @@ def main():
         settings.projection = "Z"
         settings.resolution = 1024
         settings.fit_resolution_to_aspect = True
+        settings.base_shape = "RECTANGLE"
         settings.blur_radius = 0.5
         settings.smooth_factor = 0.0
         settings.smooth_iterations = 0

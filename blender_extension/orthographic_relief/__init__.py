@@ -68,6 +68,23 @@ class ORTHORELIEF_PG_Settings(bpy.types.PropertyGroup):
         min=0.00001,
         unit="LENGTH",
     )
+    base_shape: EnumProperty(
+        name="Base Shape",
+        description="Choose whether the solid follows the projected source outline",
+        items=[
+            (
+                "SILHOUETTE",
+                "Source Silhouette",
+                "Trim the base, back, and side wall to the projected source outline",
+            ),
+            (
+                "RECTANGLE",
+                "Rectangle",
+                "Keep the original rectangular plaque around the relief",
+            ),
+        ],
+        default="SILHOUETTE",
+    )
     margin: FloatProperty(
         name="Margin",
         description="Fractional border around the projected source",
@@ -149,6 +166,7 @@ class ORTHORELIEF_OT_Generate(bpy.types.Operator):
                 fit_resolution_to_aspect=settings.fit_resolution_to_aspect,
                 relief_height=settings.relief_height,
                 base_thickness=settings.base_thickness,
+                base_shape=settings.base_shape,
                 margin=settings.margin,
                 blur_radius=settings.blur_radius,
                 depth_gamma=settings.depth_gamma,
@@ -191,7 +209,11 @@ class ORTHORELIEF_PT_MainPanel(bpy.types.Panel):
         image_box.label(text="Depth Image", icon="IMAGE_DATA")
         image_box.prop(settings, "resolution")
         image_box.prop(settings, "fit_resolution_to_aspect")
-        maximum_vertices = settings.resolution * settings.resolution + 4
+        maximum_vertices = settings.resolution * settings.resolution
+        if settings.base_shape == "SILHOUETTE":
+            maximum_vertices *= 2
+        else:
+            maximum_vertices += 4
         image_box.label(text=f"Maximum vertices: {maximum_vertices:,}")
         if settings.resolution > 768:
             image_box.label(text="High memory usage; generation may take time", icon="ERROR")
@@ -202,6 +224,7 @@ class ORTHORELIEF_PT_MainPanel(bpy.types.Panel):
 
         geometry_box = layout.box()
         geometry_box.label(text="Relief Geometry", icon="MOD_DISPLACE")
+        geometry_box.prop(settings, "base_shape")
         geometry_box.prop(settings, "relief_height")
         geometry_box.prop(settings, "base_thickness")
         geometry_box.prop(settings, "smooth_factor")

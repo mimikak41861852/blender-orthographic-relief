@@ -16,6 +16,7 @@ source.name = "InstalledExtensionSource"
 settings = bpy.context.scene.orthographic_relief_settings
 assert settings.bl_rna.properties["resolution"].hard_max == 1024
 assert settings.fit_resolution_to_aspect is True
+assert settings.base_shape == "SILHOUETTE"
 settings.output_name = "InstalledExtensionRelief"
 settings.resolution = 24
 settings.blur_radius = 1.0

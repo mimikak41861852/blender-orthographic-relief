@@ -43,7 +43,7 @@ def _blender_request(command: str, payload: dict[str, Any] | None = None) -> dic
     except OSError as exc:
         raise RuntimeError(
             f"Cannot connect to Blender at {HOST}:{PORT}. Open Blender and enable "
-            "the Relief MCP add-on, then retry. Original error: {exc}"
+            f"the Relief MCP add-on, then retry. Original error: {exc}"
         ) from exc
 
     if not response:
@@ -77,6 +77,7 @@ def generate_relief(
     fit_resolution_to_aspect: bool = True,
     relief_height: float = 0.25,
     base_thickness: float = 0.1,
+    base_shape: str = "SILHOUETTE",
     margin: float = 0.05,
     blur_radius: float = 1.25,
     depth_gamma: float = 1.0,
@@ -90,8 +91,9 @@ def generate_relief(
 
     projection is the viewing side: X, -X, Y, -Y, Z, -Z, or CAMERA. The source
     is sampled by orthographic rays, converted to a grayscale height image,
-    Gaussian-blurred, and rebuilt as a solid rectangular relief plaque. Dimensions
-    are Blender units; blur_radius is in image pixels.
+    Gaussian-blurred, and rebuilt as a closed solid relief. base_shape can be
+    SILHOUETTE to follow the projected source outline or RECTANGLE for the original
+    plaque. Dimensions are Blender units; blur_radius is in image pixels.
     """
     payload = {
         "source_object": source_object,
@@ -102,6 +104,7 @@ def generate_relief(
         "fit_resolution_to_aspect": fit_resolution_to_aspect,
         "relief_height": relief_height,
         "base_thickness": base_thickness,
+        "base_shape": base_shape,
         "margin": margin,
         "blur_radius": blur_radius,
         "depth_gamma": depth_gamma,

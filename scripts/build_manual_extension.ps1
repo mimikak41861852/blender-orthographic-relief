@@ -1,6 +1,6 @@
 param(
     [string]$BlenderPath = "blender",
-    [string]$Version = "1.1.0"
+    [string]$Version = "1.2.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,6 +8,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $Source = Join-Path $RepoRoot "blender_extension\orthographic_relief"
 $Dist = Join-Path $RepoRoot "dist"
 $Output = Join-Path $Dist "orthographic_relief-$Version.zip"
+$ChecksumOutput = "$Output.sha256"
 
 if (Test-Path -LiteralPath $BlenderPath) {
     $BlenderExecutable = (Resolve-Path -LiteralPath $BlenderPath).Path
@@ -39,5 +40,8 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $Hash = Get-FileHash -Algorithm SHA256 -LiteralPath $Output
+$ChecksumLine = "$($Hash.Hash.ToLowerInvariant())  $(Split-Path -Leaf $Output)"
+Set-Content -LiteralPath $ChecksumOutput -Value $ChecksumLine -Encoding ASCII
 Write-Host "Created $Output"
+Write-Host "Created $ChecksumOutput"
 Write-Host "SHA256 $($Hash.Hash.ToLowerInvariant())"

@@ -15,6 +15,7 @@ from mathutils.bvhtree import BVHTree
 
 
 PROJECTION_AXES = {"X", "-X", "Y", "-Y", "Z", "-Z", "CAMERA"}
+BASE_SHAPES = {"SILHOUETTE", "RECTANGLE"}
 
 
 def _projection_basis(
@@ -242,39 +243,16 @@ def _store_image(
     return image, saved_path
 
 
-def _build_relief_mesh(
-    source: bpy.types.Object,
-    name: str,
-    field: Dict[str, Any],
+def _build_rectangular_geometry(
+    heights: np.ndarray,
+    u_values: np.ndarray,
+    v_values: np.ndarray,
     right: Vector,
     up: Vector,
-    ray_direction: Vector,
-    relief_height: float,
+    normal: Vector,
     base_thickness: float,
-    corrective_smooth_factor: float,
-    corrective_smooth_iterations: int,
-) -> bpy.types.Object:
-    heights: np.ndarray = field["height"] * relief_height
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]], list[int], int]:
     resolution_y, resolution_x = heights.shape
-    normal = -ray_direction.normalized()
-    center_u = (field["u_min"] + field["u_max"]) * 0.5
-    center_v = (field["v_min"] + field["v_max"]) * 0.5
-    center = (
-        right * center_u
-        + up * center_v
-        + ray_direction * float(field["center_d"])
-    )
-    u_values = np.linspace(
-        field["u_min"] - center_u,
-        field["u_max"] - center_u,
-        resolution_x,
-    )
-    v_values = np.linspace(
-        field["v_min"] - center_v,
-        field["v_max"] - center_v,
-        resolution_y,
-    )
-
     mesh_vertices: list[tuple[float, float, float]] = []
     for y_index, v_coord in enumerate(v_values):
         row = up * float(v_coord)
@@ -326,6 +304,198 @@ def _build_relief_mesh(
     faces.append((top_right, top_left) + top_edge)
     left_edge = tuple(y_index * resolution_x for y_index in range(resolution_y))
     faces.append((top_left, bottom_left) + left_edge)
+    return mesh_vertices, faces, list(range(top_vertex_count)), top_face_count
+
+
+def _build_silhouette_geometry(
+    heights: np.ndarray,
+    mask: np.ndarray,
+    u_values: np.ndarray,
+    v_values: np.ndarray,
+    right: Vector,
+    up: Vector,
+    normal: Vector,
+    base_thickness: float,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]], list[int], int]:
+    """Build a closed solid from grid cells touching the projected source mask."""
+    resolution_y, resolution_x = heights.shape
+    occupied_samples = mask > 0.5
+    active_cells = (
+        occupied_samples[:-1, :-1]
+        | occupied_samples[:-1, 1:]
+        | occupied_samples[1:, :-1]
+        | occupied_samples[1:, 1:]
+    )
+    if not bool(active_cells.any()):
+        raise RuntimeError("The projected silhouette is too small for this resolution")
+
+    used_samples = np.zeros((resolution_y, resolution_x), dtype=bool)
+    used_samples[:-1, :-1] |= active_cells
+    used_samples[:-1, 1:] |= active_cells
+    used_samples[1:, :-1] |= active_cells
+    used_samples[1:, 1:] |= active_cells
+
+    top_indices = np.full((resolution_y, resolution_x), -1, dtype=np.int64)
+    bottom_indices = np.full((resolution_y, resolution_x), -1, dtype=np.int64)
+    mesh_vertices: list[tuple[float, float, float]] = []
+
+    used_coordinates = np.argwhere(used_samples)
+    for y_index_value, x_index_value in used_coordinates:
+        y_index = int(y_index_value)
+        x_index = int(x_index_value)
+        point = (
+            up * float(v_values[y_index])
+            + right * float(u_values[x_index])
+            + normal * float(heights[y_index, x_index])
+        )
+        top_indices[y_index, x_index] = len(mesh_vertices)
+        mesh_vertices.append(tuple(point))
+
+    top_vertex_indices = list(range(len(mesh_vertices)))
+    for y_index_value, x_index_value in used_coordinates:
+        y_index = int(y_index_value)
+        x_index = int(x_index_value)
+        point = (
+            up * float(v_values[y_index])
+            + right * float(u_values[x_index])
+            - normal * base_thickness
+        )
+        bottom_indices[y_index, x_index] = len(mesh_vertices)
+        mesh_vertices.append(tuple(point))
+
+    faces: list[tuple[int, ...]] = []
+    active_coordinates = np.argwhere(active_cells)
+    for y_index_value, x_index_value in active_coordinates:
+        y_index = int(y_index_value)
+        x_index = int(x_index_value)
+        lower_left = int(top_indices[y_index, x_index])
+        lower_right = int(top_indices[y_index, x_index + 1])
+        upper_left = int(top_indices[y_index + 1, x_index])
+        upper_right = int(top_indices[y_index + 1, x_index + 1])
+        faces.append((lower_left, lower_right, upper_right, upper_left))
+    top_face_count = len(faces)
+
+    for y_index_value, x_index_value in active_coordinates:
+        y_index = int(y_index_value)
+        x_index = int(x_index_value)
+        lower_left = int(bottom_indices[y_index, x_index])
+        lower_right = int(bottom_indices[y_index, x_index + 1])
+        upper_left = int(bottom_indices[y_index + 1, x_index])
+        upper_right = int(bottom_indices[y_index + 1, x_index + 1])
+        faces.append((lower_left, upper_left, upper_right, lower_right))
+
+    cell_height, cell_width = active_cells.shape
+    for y_index_value, x_index_value in active_coordinates:
+        y_index = int(y_index_value)
+        x_index = int(x_index_value)
+        top_lower_left = int(top_indices[y_index, x_index])
+        top_lower_right = int(top_indices[y_index, x_index + 1])
+        top_upper_left = int(top_indices[y_index + 1, x_index])
+        top_upper_right = int(top_indices[y_index + 1, x_index + 1])
+        bottom_lower_left = int(bottom_indices[y_index, x_index])
+        bottom_lower_right = int(bottom_indices[y_index, x_index + 1])
+        bottom_upper_left = int(bottom_indices[y_index + 1, x_index])
+        bottom_upper_right = int(bottom_indices[y_index + 1, x_index + 1])
+
+        if y_index == 0 or not active_cells[y_index - 1, x_index]:
+            faces.append(
+                (
+                    top_lower_right,
+                    top_lower_left,
+                    bottom_lower_left,
+                    bottom_lower_right,
+                )
+            )
+        if x_index == cell_width - 1 or not active_cells[y_index, x_index + 1]:
+            faces.append(
+                (
+                    top_upper_right,
+                    top_lower_right,
+                    bottom_lower_right,
+                    bottom_upper_right,
+                )
+            )
+        if y_index == cell_height - 1 or not active_cells[y_index + 1, x_index]:
+            faces.append(
+                (
+                    top_upper_left,
+                    top_upper_right,
+                    bottom_upper_right,
+                    bottom_upper_left,
+                )
+            )
+        if x_index == 0 or not active_cells[y_index, x_index - 1]:
+            faces.append(
+                (
+                    top_lower_left,
+                    top_upper_left,
+                    bottom_upper_left,
+                    bottom_lower_left,
+                )
+            )
+
+    return mesh_vertices, faces, top_vertex_indices, top_face_count
+
+
+def _build_relief_mesh(
+    source: bpy.types.Object,
+    name: str,
+    field: Dict[str, Any],
+    right: Vector,
+    up: Vector,
+    ray_direction: Vector,
+    relief_height: float,
+    base_thickness: float,
+    base_shape: str,
+    corrective_smooth_factor: float,
+    corrective_smooth_iterations: int,
+) -> bpy.types.Object:
+    heights: np.ndarray = field["height"] * relief_height
+    resolution_y, resolution_x = heights.shape
+    normal = -ray_direction.normalized()
+    center_u = (field["u_min"] + field["u_max"]) * 0.5
+    center_v = (field["v_min"] + field["v_max"]) * 0.5
+    center = (
+        right * center_u
+        + up * center_v
+        + ray_direction * float(field["center_d"])
+    )
+    u_values = np.linspace(
+        field["u_min"] - center_u,
+        field["u_max"] - center_u,
+        resolution_x,
+    )
+    v_values = np.linspace(
+        field["v_min"] - center_v,
+        field["v_max"] - center_v,
+        resolution_y,
+    )
+
+    if base_shape == "SILHOUETTE":
+        mesh_vertices, faces, top_vertex_indices, top_face_count = (
+            _build_silhouette_geometry(
+                heights=heights,
+                mask=field["mask"],
+                u_values=u_values,
+                v_values=v_values,
+                right=right,
+                up=up,
+                normal=normal,
+                base_thickness=base_thickness,
+            )
+        )
+    else:
+        mesh_vertices, faces, top_vertex_indices, top_face_count = (
+            _build_rectangular_geometry(
+                heights=heights,
+                u_values=u_values,
+                v_values=v_values,
+                right=right,
+                up=up,
+                normal=normal,
+                base_thickness=base_thickness,
+            )
+        )
 
     mesh = bpy.data.meshes.new(name + "Mesh")
     mesh.from_pydata(mesh_vertices, [], faces)
@@ -343,7 +513,7 @@ def _build_relief_mesh(
         mesh.polygons[polygon_index].use_smooth = True
 
     surface_group = relief.vertex_groups.new(name="ReliefSurface")
-    surface_group.add(list(range(top_vertex_count)), 1.0, "REPLACE")
+    surface_group.add(top_vertex_indices, 1.0, "REPLACE")
     modifier = relief.modifiers.new(
         name="Relief Corrective Smooth", type="CORRECTIVE_SMOOTH"
     )
@@ -359,6 +529,7 @@ def _build_relief_mesh(
     relief["relief_source"] = source.name
     relief["relief_projection_is_height_field"] = True
     relief["relief_undercut_free_direction"] = tuple(normal)
+    relief["relief_base_shape"] = base_shape
     return relief
 
 
@@ -371,6 +542,7 @@ def generate_relief(
     fit_resolution_to_aspect: bool = False,
     relief_height: float = 0.25,
     base_thickness: float = 0.1,
+    base_shape: str = "SILHOUETTE",
     margin: float = 0.05,
     blur_radius: float = 1.25,
     depth_gamma: float = 1.0,
@@ -385,6 +557,9 @@ def generate_relief(
     resolution_y = int(max(8, min(1024, resolution_y)))
     relief_height = float(max(1.0e-5, relief_height))
     base_thickness = float(max(1.0e-5, base_thickness))
+    base_shape = base_shape.upper()
+    if base_shape not in BASE_SHAPES:
+        raise ValueError("base_shape must be SILHOUETTE or RECTANGLE")
     margin = float(max(0.0, min(1.0, margin)))
     blur_radius = float(max(0.0, min(64.0, blur_radius)))
     depth_gamma = float(max(0.05, min(10.0, depth_gamma)))
@@ -441,6 +616,7 @@ def generate_relief(
         ray_direction=ray_direction,
         relief_height=relief_height,
         base_thickness=base_thickness,
+        base_shape=base_shape,
         corrective_smooth_factor=corrective_smooth_factor,
         corrective_smooth_iterations=corrective_smooth_iterations,
     )
@@ -454,6 +630,7 @@ def generate_relief(
         "object_name": relief.name,
         "source_object": source.name,
         "projection": projection,
+        "base_shape": base_shape,
         "resolution": [field["resolution_x"], field["resolution_y"]],
         "hit_pixels": field["hit_count"],
         "vertex_count": len(relief.data.vertices),

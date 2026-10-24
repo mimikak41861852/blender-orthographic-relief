@@ -28,6 +28,7 @@ def main():
         settings.resolution = 32
         settings.relief_height = 0.2
         settings.base_thickness = 0.08
+        settings.base_shape = "SILHOUETTE"
         settings.blur_radius = 1.5
         settings.smooth_iterations = 2
         settings.save_images = False
@@ -36,11 +37,14 @@ def main():
         assert status == {"FINISHED"}
         relief = bpy.data.objects["ManualExtensionRelief"]
         assert relief["relief_projection_is_height_field"] is True
+        assert relief["relief_base_shape"] == "SILHOUETTE"
+        assert len(relief.data.vertices) < 2 * 32 * 32
         assert any(mod.type == "CORRECTIVE_SMOOTH" for mod in relief.modifiers)
 
         check_mesh = bmesh.new()
         check_mesh.from_mesh(relief.data)
         assert all(edge.is_manifold for edge in check_mesh.edges)
+        assert check_mesh.calc_volume(signed=True) > 0.0
         check_mesh.free()
         print(
             "MANUAL_EXTENSION_OK",

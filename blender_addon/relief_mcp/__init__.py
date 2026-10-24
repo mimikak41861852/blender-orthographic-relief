@@ -201,6 +201,14 @@ class RELIEF_PG_Settings(bpy.types.PropertyGroup):
     resolution: IntProperty(name="Resolution", default=512, min=8, max=1024)
     relief_height: FloatProperty(name="Relief Height", default=0.25, min=0.00001)
     base_thickness: FloatProperty(name="Base Thickness", default=0.1, min=0.00001)
+    base_shape: EnumProperty(
+        name="Base Shape",
+        items=[
+            ("SILHOUETTE", "Source Silhouette", "Trim to the projected source outline"),
+            ("RECTANGLE", "Rectangle", "Keep the original rectangular plaque"),
+        ],
+        default="SILHOUETTE",
+    )
     margin: FloatProperty(name="Margin", default=0.05, min=0.0, max=1.0)
     blur_radius: FloatProperty(name="Blur (px)", default=1.25, min=0.0, max=64.0)
     smooth_factor: FloatProperty(name="Corrective Smooth", default=0.15, min=-10.0, max=10.0)
@@ -222,6 +230,7 @@ class RELIEF_OT_Generate(bpy.types.Operator):
                 resolution_y=settings.resolution,
                 relief_height=settings.relief_height,
                 base_thickness=settings.base_thickness,
+                base_shape=settings.base_shape,
                 margin=settings.margin,
                 blur_radius=settings.blur_radius,
                 corrective_smooth_factor=settings.smooth_factor,
@@ -267,6 +276,7 @@ class RELIEF_PT_Panel(bpy.types.Panel):
         layout.label(text=f"Source: {active.name if active else 'None'}")
         layout.prop(settings, "projection")
         layout.prop(settings, "resolution")
+        layout.prop(settings, "base_shape")
         layout.prop(settings, "relief_height")
         layout.prop(settings, "base_thickness")
         layout.prop(settings, "margin")
