@@ -1,0 +1,14 @@
+.tools/
+.venv/
+.agents/
+.codex/config.toml
+*.egg-info/
+dist/*
+!dist/orthographic_relief-1.1.0.zip
+!dist/orthographic_relief-1.1.0.zip.sha256
+relief_output/
+__pycache__/
+*.pyc
+*.blend
+*.blend1
+*.blend2

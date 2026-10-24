@@ -1,0 +1,22 @@
+schema_version = "1.0.0"
+
+id = "orthographic_relief"
+version = "1.1.0"
+name = "Orthographic Relief"
+tagline = "Create undercut-free relief meshes from orthographic depth"
+maintainer = "Orthographic Relief Maintainers"
+type = "add-on"
+tags = ["Modeling"]
+blender_version_min = "5.2.0"
+license = ["SPDX:GPL-3.0-or-later"]
+
+[permissions]
+files = "Save generated depth and blurred height images"
+
+[build]
+paths_exclude_pattern = [
+  "__pycache__/",
+  ".git",
+  "*.zip",
+  "*.pyc",
+]
