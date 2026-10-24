@@ -6,15 +6,23 @@
 
 Blender 5.2.3 LTS には、MCP・ソケット・ネットワーク機能を含まない手動操作専用Extensionを用意しています。
 
-- 配布ZIP: [`dist/orthographic_relief-1.2.0.zip`](dist/orthographic_relief-1.2.0.zip)
+- 配布ZIP: [`dist/orthographic_relief-1.3.0.zip`](dist/orthographic_relief-1.3.0.zip)
 - ソース: [`blender_extension/orthographic_relief`](blender_extension/orthographic_relief)
 - 配布・インストール手順: [`DISTRIBUTION.md`](DISTRIBUTION.md)
 
 Blender 5.2.3では `N` パネル → `Relief` → `Generate Relief` から操作します。MCP版は既存のBlender 3.6環境用として分離してあり、5.2.3では有効化していません。
 
-バージョン1.2.0では、投影された元メッシュの外形に合わせて背面と側壁も切り抜く `Source Silhouette` を既定にしました。リンゴなら矩形プレートではなく、リンゴの輪郭を持つ閉じたソリッドとして出力されます。従来の箱型は `Rectangle` で選択できます。
+投影された元メッシュの外形に合わせて背面と側壁も切り抜く `Source Silhouette` が既定です。リンゴなら矩形プレートではなく、リンゴの輪郭を持つ閉じたソリッドとして出力されます。従来の箱型は `Rectangle` で選択できます。
 
 深度解像度の上限は1024、既定値は512です。投影形状の縦横比に合わせて短辺側の頂点数を自動調整します。
+
+## Rhino / STEP向けCADクワッドコピー
+
+バージョン1.3.0では、選択したレリーフをBlender内蔵QuadriFlowで低密度の全四角形メッシュへ再構成する `Create CAD Quad Copy` を追加しました。元オブジェクトは変更せず、Corrective Smoothなどの評価済みモディファイアーを焼き込んだ複製を作ります。
+
+`Preserve Sharp Edges` は既定で有効です。レリーフ面と壁・背面の鋭い境界は、意図的にアンウェルドされた開放シームとして残る場合があります。これは不具合扱いにせず、Rhinoの `ToSubD` で `MeshCreases=Yes` を使ってクリースへ変換するための出力です。完全に閉じたメッシュを優先する場合は `Preserve Sharp Edges` を無効にします。
+
+推奨経路は `OBJ → Rhino ToSubD（MeshCreases=Yes）→ ToNURBS → STEP` です。STLは四角形を三角形へ分割するため、この用途ではOBJを使用してください。
 
 ## 仕組み
 

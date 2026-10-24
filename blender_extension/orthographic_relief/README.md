@@ -33,6 +33,22 @@ the active scene camera orientation.
 
 The undercut-free guarantee applies only along the selected projection direction.
 
+## CAD / Rhino quad copy
+
+Select a relief and press **Create CAD Quad Copy** to bake its evaluated
+modifiers and rebuild a lower-density, all-quad duplicate with Blender's bundled
+QuadriFlow remesher. The original object is not changed.
+
+**Preserve Sharp Edges** is enabled by default. Sharp transitions around the
+relief, side wall, and back may become intentional unwelded boundary seams. These
+are accepted as valid output so Rhino `ToSubD` can convert them to crease edges
+with `MeshCreases=Yes`. Disable **Preserve Sharp Edges** when a completely closed
+manifold is more important than explicit SubD creases.
+
+For STEP conversion, export the quad copy as OBJ, then use Rhino `ToSubD`,
+`ToNURBS`, and STEP export. Do not use STL for this path because STL triangulates
+the quad mesh.
+
 ## Privacy and connectivity
 
 This extension has no MCP integration, network listener, telemetry, or background

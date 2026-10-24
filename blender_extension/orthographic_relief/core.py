@@ -8,6 +8,7 @@ import re
 import tempfile
 from typing import Any, Dict, Optional, Tuple
 
+import bmesh
 import bpy
 import numpy as np
 from mathutils import Vector
@@ -641,3 +642,203 @@ def generate_relief(
         "corrective_smooth_modifier": "Relief Corrective Smooth",
         "undercut_free_along_projection": True,
     }
+
+
+def quad_remesh_for_cad(
+    source_object: Optional[str] = None,
+    output_name: Optional[str] = None,
+    target_faces: int = 20000,
+    preserve_sharp: bool = True,
+    preserve_boundary: bool = False,
+    use_mesh_symmetry: bool = False,
+    apply_modifiers: bool = True,
+    seed: int = 0,
+) -> Dict[str, Any]:
+    """Create a lower-density all-quad copy suitable for Rhino SubD conversion.
+
+    Boundary edges are valid output. In particular, QuadriFlow can split retained
+    sharp edges into unwelded boundary pairs which Rhino can import as SubD
+    creases. Only wire/branching edges and non-quad faces fail validation.
+    """
+    source = bpy.data.objects.get(source_object) if source_object else bpy.context.active_object
+    if source is None:
+        raise ValueError("No source object was specified and there is no active object")
+    if source.type != "MESH":
+        raise TypeError(f"Source object {source.name!r} is not a mesh")
+
+    target_faces = int(max(4, min(2_000_000, target_faces)))
+    seed = int(max(0, min(2_147_483_647, seed)))
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    if apply_modifiers:
+        evaluated = source.evaluated_get(depsgraph)
+        output_mesh = bpy.data.meshes.new_from_object(
+            evaluated,
+            preserve_all_data_layers=False,
+            depsgraph=depsgraph,
+        )
+    else:
+        output_mesh = source.data.copy()
+
+    base_name = output_name or source.name + "_CAD_Quad"
+    output = bpy.data.objects.new(base_name, output_mesh)
+    output.matrix_world = source.matrix_world.copy()
+    output_collection = (
+        source.users_collection[0]
+        if source.users_collection
+        else bpy.context.scene.collection
+    )
+    output_collection.objects.link(output)
+
+    reference_mesh = output_mesh.copy()
+    output_mesh_name = output_mesh.name
+    reference_mesh_name = reference_mesh.name
+    reference_vertices = [vertex.co.copy() for vertex in reference_mesh.vertices]
+    reference_polygons = [tuple(polygon.vertices) for polygon in reference_mesh.polygons]
+    reference_bvh = BVHTree.FromPolygons(
+        reference_vertices,
+        reference_polygons,
+        all_triangles=False,
+    )
+    source_face_count = len(reference_mesh.polygons)
+
+    def run_quadriflow(keep_sharp: bool) -> None:
+        status = bpy.ops.object.quadriflow_remesh(
+            use_mesh_symmetry=bool(use_mesh_symmetry),
+            use_preserve_sharp=keep_sharp,
+            use_preserve_boundary=bool(preserve_boundary),
+            preserve_attributes=False,
+            smooth_normals=True,
+            mode="FACES",
+            target_faces=target_faces,
+            seed=seed,
+        )
+        if "FINISHED" not in status:
+            raise RuntimeError(f"QuadriFlow did not finish: {sorted(status)}")
+
+    def inspect_output() -> tuple[bool, bool, bool, int, int, int, float, float, float]:
+        all_quads = all(len(polygon.vertices) == 4 for polygon in output.data.polygons)
+        check_mesh = bmesh.new()
+        try:
+            check_mesh.from_mesh(output.data)
+            boundary_edge_count = sum(
+                1 for edge in check_mesh.edges if len(edge.link_faces) == 1
+            )
+            invalid_edge_count = sum(
+                1 for edge in check_mesh.edges if len(edge.link_faces) not in {1, 2}
+            )
+            isolated_vertex_count = sum(
+                1 for vertex in check_mesh.verts if not vertex.link_edges
+            )
+            closed_manifold = (
+                bool(check_mesh.faces)
+                and boundary_edge_count == 0
+                and invalid_edge_count == 0
+                and isolated_vertex_count == 0
+            )
+            subd_safe = (
+                bool(check_mesh.faces)
+                and all_quads
+                and invalid_edge_count == 0
+                and isolated_vertex_count == 0
+            )
+            signed_volume = float(check_mesh.calc_volume(signed=True))
+        finally:
+            check_mesh.free()
+
+        distances: list[float] = []
+        if reference_bvh is not None:
+            for vertex in output.data.vertices:
+                nearest = reference_bvh.find_nearest(vertex.co)
+                if nearest is not None:
+                    distances.append(float(nearest[3]))
+        mean_deviation = float(sum(distances) / len(distances)) if distances else 0.0
+        max_deviation = float(max(distances)) if distances else 0.0
+        return (
+            all_quads,
+            subd_safe,
+            closed_manifold,
+            boundary_edge_count,
+            invalid_edge_count,
+            isolated_vertex_count,
+            signed_volume,
+            mean_deviation,
+            max_deviation,
+        )
+
+    try:
+        if bpy.context.object is not None and bpy.context.object.mode != "OBJECT":
+            bpy.ops.object.mode_set(mode="OBJECT")
+        for selected in list(bpy.context.selected_objects):
+            selected.select_set(False)
+        output.select_set(True)
+        bpy.context.view_layer.objects.active = output
+
+        run_quadriflow(bool(preserve_sharp))
+        (
+            all_quads,
+            subd_safe,
+            closed_manifold,
+            boundary_edge_count,
+            invalid_edge_count,
+            isolated_vertex_count,
+            signed_volume,
+            mean_deviation,
+            max_deviation,
+        ) = inspect_output()
+
+        if not subd_safe:
+            raise RuntimeError(
+                "QuadriFlow did not produce a SubD-safe all-quad mesh "
+                f"({invalid_edge_count} invalid edges, "
+                f"{isolated_vertex_count} isolated vertices); "
+                "try a different target face count"
+            )
+
+        output["cad_quad_source"] = source.name
+        output["cad_quad_target_faces"] = target_faces
+        output["cad_quad_all_quads"] = all_quads
+        output["cad_quad_subd_safe"] = subd_safe
+        output["cad_quad_closed_manifold"] = closed_manifold
+        output["cad_quad_manifold"] = closed_manifold
+        output["cad_quad_boundary_edges"] = boundary_edge_count
+        output["cad_quad_invalid_edges"] = invalid_edge_count
+        output["cad_quad_isolated_vertices"] = isolated_vertex_count
+        output["cad_quad_preserved_sharp"] = bool(preserve_sharp)
+        output["cad_quad_mean_deviation"] = mean_deviation
+        output["cad_quad_max_deviation"] = max_deviation
+
+        if reference_mesh.users == 0:
+            bpy.data.meshes.remove(reference_mesh)
+
+        return {
+            "object_name": output.name,
+            "source_object": source.name,
+            "source_face_count": source_face_count,
+            "target_face_count": target_faces,
+            "face_count": len(output.data.polygons),
+            "vertex_count": len(output.data.vertices),
+            "all_quads": all_quads,
+            "subd_safe": subd_safe,
+            "closed_manifold": closed_manifold,
+            "manifold": closed_manifold,
+            "boundary_edge_count": boundary_edge_count,
+            "invalid_edge_count": invalid_edge_count,
+            "isolated_vertex_count": isolated_vertex_count,
+            "signed_volume": signed_volume,
+            "mean_deviation": mean_deviation,
+            "max_deviation": max_deviation,
+            "modifiers_applied": bool(apply_modifiers),
+            "preserved_sharp": bool(preserve_sharp),
+        }
+    except Exception:
+        bpy.data.objects.remove(output, do_unlink=True)
+        for mesh_name in (output_mesh_name, reference_mesh_name):
+            mesh = bpy.data.meshes.get(mesh_name)
+            if mesh is not None and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+        for selected in list(bpy.context.selected_objects):
+            selected.select_set(False)
+        source.select_set(True)
+        bpy.context.view_layer.objects.active = source
+        raise

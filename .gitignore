@@ -6,6 +6,8 @@
 dist/*
 !dist/orthographic_relief-1.2.0.zip
 !dist/orthographic_relief-1.2.0.zip.sha256
+!dist/orthographic_relief-1.3.0.zip
+!dist/orthographic_relief-1.3.0.zip.sha256
 relief_output/
 __pycache__/
 *.pyc

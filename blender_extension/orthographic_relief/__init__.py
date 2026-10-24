@@ -18,7 +18,7 @@ from bpy.props import (
     StringProperty,
 )
 
-from .core import generate_relief
+from .core import generate_relief, quad_remesh_for_cad
 
 
 class ORTHORELIEF_PG_Settings(bpy.types.PropertyGroup):
@@ -138,6 +138,36 @@ class ORTHORELIEF_PG_Settings(bpy.types.PropertyGroup):
         default="//relief_output",
         subtype="DIR_PATH",
     )
+    quad_target_faces: IntProperty(
+        name="Target Quad Faces",
+        description="Approximate face count for the Rhino/SubD-friendly copy",
+        default=20000,
+        min=4,
+        max=2000000,
+    )
+    quad_preserve_sharp: BoolProperty(
+        name="Preserve Sharp Edges",
+        description=(
+            "Retain rim and back creases; the resulting unwelded boundary seams "
+            "are intentional and can become creases with Rhino ToSubD"
+        ),
+        default=True,
+    )
+    quad_preserve_boundary: BoolProperty(
+        name="Preserve Open Boundaries",
+        description="Preserve boundary loops on open input meshes",
+        default=False,
+    )
+    quad_use_symmetry: BoolProperty(
+        name="Use Mesh Symmetry",
+        description="Generate symmetric topology using the mesh symmetry settings",
+        default=False,
+    )
+    quad_apply_modifiers: BoolProperty(
+        name="Bake Modifiers",
+        description="Bake Corrective Smooth and other modifiers into the remesh source",
+        default=True,
+    )
 
 
 class ORTHORELIEF_OT_Generate(bpy.types.Operator):
@@ -182,6 +212,57 @@ class ORTHORELIEF_OT_Generate(bpy.types.Operator):
             return {"CANCELLED"}
 
         self.report({"INFO"}, f"Created {result['object_name']}")
+        return {"FINISHED"}
+
+
+class ORTHORELIEF_OT_CADQuadRemesh(bpy.types.Operator):
+    bl_idname = "object.orthorelief_cad_quad_remesh"
+    bl_label = "Create CAD Quad Copy"
+    bl_description = (
+        "Duplicate the active mesh and rebuild it as a lower-density all-quad "
+        "mesh for Rhino SubD/NURBS conversion; retained creases may be open seams"
+    )
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == "MESH"
+
+    def execute(self, context):
+        settings = context.scene.orthographic_relief_settings
+        source = context.active_object
+        try:
+            result = quad_remesh_for_cad(
+                source_object=source.name,
+                target_faces=settings.quad_target_faces,
+                preserve_sharp=settings.quad_preserve_sharp,
+                preserve_boundary=settings.quad_preserve_boundary,
+                use_mesh_symmetry=settings.quad_use_symmetry,
+                apply_modifiers=settings.quad_apply_modifiers,
+            )
+        except Exception as exc:
+            traceback.print_exc()
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+
+        if not result["subd_safe"]:
+            self.report(
+                {"WARNING"},
+                f"Created {result['object_name']}, but topology validation found issues",
+            )
+        else:
+            message = (
+                f"Created {result['object_name']}: {result['face_count']:,} quads, "
+                f"max deviation {result['max_deviation']:.6g}"
+            )
+            if result["boundary_edge_count"]:
+                message += (
+                    f"; {result['boundary_edge_count']:,} intentional crease "
+                    "boundary edges"
+                )
+            else:
+                message += "; closed manifold"
+            self.report({"INFO"}, message)
         return {"FINISHED"}
 
 
@@ -243,10 +324,29 @@ class ORTHORELIEF_PT_MainPanel(bpy.types.Panel):
         )
         layout.label(text="Undercut-free along the selected view direction", icon="INFO")
 
+        quad_box = layout.box()
+        quad_box.label(text="CAD / Rhino Quad Mesh", icon="MESH_GRID")
+        quad_box.prop(settings, "quad_target_faces")
+        quad_box.prop(settings, "quad_apply_modifiers")
+        quad_box.prop(settings, "quad_preserve_sharp")
+        if settings.quad_preserve_sharp:
+            quad_box.label(text="Open seams become Rhino SubD creases", icon="INFO")
+        else:
+            quad_box.label(text="Sharp seams off: prefer a closed solid", icon="INFO")
+        quad_box.prop(settings, "quad_preserve_boundary")
+        quad_box.prop(settings, "quad_use_symmetry")
+        quad_box.operator(
+            "object.orthorelief_cad_quad_remesh",
+            text="Create CAD Quad Copy",
+            icon="MOD_REMESH",
+        )
+        quad_box.label(text="Rhino: OBJ > ToSubD > ToNURBS > STEP", icon="INFO")
+
 
 CLASSES = (
     ORTHORELIEF_PG_Settings,
     ORTHORELIEF_OT_Generate,
+    ORTHORELIEF_OT_CADQuadRemesh,
     ORTHORELIEF_PT_MainPanel,
 )
 
