@@ -18,7 +18,10 @@ assert settings.bl_rna.properties["resolution"].hard_max == 1024
 assert settings.fit_resolution_to_aspect is True
 assert settings.base_shape == "SILHOUETTE"
 assert settings.quad_preserve_sharp is True
+assert settings.quad_backend == "REQUAD_ADAPTIVE"
+assert settings.preview_resolution == 128
 assert hasattr(bpy.ops.object, "orthorelief_cad_quad_remesh")
+assert hasattr(bpy.ops.object, "orthorelief_preview_start")
 settings.output_name = "InstalledExtensionRelief"
 settings.resolution = 24
 settings.blur_radius = 1.0
@@ -36,6 +39,8 @@ print(
         "mcp_addon_enabled": False,
         "resolution_max": 1024,
         "cad_quad_operator": True,
+        "adaptive_backend_default": settings.quad_backend,
+        "live_preview_operator": True,
         "open_crease_seams_default": settings.quad_preserve_sharp,
         "object": result.name,
     },

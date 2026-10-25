@@ -60,6 +60,7 @@ def main():
         assert relief.modifiers.get("Relief Corrective Smooth") is not None
 
         settings.quad_target_faces = 1500
+        settings.quad_backend = "QUADRIFLOW_NATIVE"
         settings.quad_apply_modifiers = True
         settings.quad_preserve_sharp = True
         settings.quad_preserve_boundary = False
@@ -70,6 +71,7 @@ def main():
         crease_quad = bpy.context.active_object
         assert crease_quad is not relief
         assert crease_quad["cad_quad_source"] == relief.name
+        assert crease_quad["cad_quad_backend"] == "QUADRIFLOW_NATIVE"
         assert crease_quad["cad_quad_all_quads"] is True
         assert crease_quad["cad_quad_subd_safe"] is True
         assert crease_quad["cad_quad_closed_manifold"] is False

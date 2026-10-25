@@ -33,8 +33,37 @@ def main():
         settings.smooth_iterations = 2
         settings.save_images = False
 
+        settings.preview_resolution = 48
+        status = bpy.ops.object.orthorelief_preview_start()
+        assert status == {"FINISHED"}
+        preview = bpy.data.objects["__Orthographic_Relief_Live_Preview__"]
+        assert preview["relief_live_preview"] is True
+        assert preview["relief_preview_source"] == source.name
+        assert source.hide_get() is True
+        assert settings.preview_enabled is True
+        first_mesh = preview.data
+
+        settings.margin = 0.08
+        settings.blur_radius = 3.0
+        settings.depth_gamma = 1.4
+        status = bpy.ops.object.orthorelief_preview_refresh()
+        assert status == {"FINISHED"}
+        refreshed = bpy.data.objects["__Orthographic_Relief_Live_Preview__"]
+        assert refreshed.data is not first_mesh
+        assert "Live" in settings.preview_status
+
+        status = bpy.ops.object.orthorelief_preview_stop()
+        assert status == {"FINISHED"}
+        assert bpy.data.objects.get("__Orthographic_Relief_Live_Preview__") is None
+        assert source.hide_get() is False
+        assert bpy.context.active_object is source
+
+        status = bpy.ops.object.orthorelief_preview_start()
+        assert status == {"FINISHED"}
         status = bpy.ops.object.generate_orthographic_relief()
         assert status == {"FINISHED"}
+        assert bpy.data.objects.get("__Orthographic_Relief_Live_Preview__") is None
+        assert source.hide_get() is False
         relief = bpy.data.objects["ManualExtensionRelief"]
         assert relief["relief_projection_is_height_field"] is True
         assert relief["relief_base_shape"] == "SILHOUETTE"
@@ -53,6 +82,7 @@ def main():
                 "object": relief.name,
                 "vertices": len(relief.data.vertices),
                 "faces": len(relief.data.polygons),
+                "live_preview": True,
                 "network_bridge": False,
             },
         )

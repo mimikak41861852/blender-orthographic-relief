@@ -6,7 +6,7 @@
 
 Blender 5.2.3 LTS には、MCP・ソケット・ネットワーク機能を含まない手動操作専用Extensionを用意しています。
 
-- 配布ZIP: [`dist/orthographic_relief-1.3.0.zip`](dist/orthographic_relief-1.3.0.zip)
+- 配布ZIP: [`dist/orthographic_relief-1.4.0.zip`](dist/orthographic_relief-1.4.0.zip)
 - ソース: [`blender_extension/orthographic_relief`](blender_extension/orthographic_relief)
 - 配布・インストール手順: [`DISTRIBUTION.md`](DISTRIBUTION.md)
 
@@ -16,9 +16,17 @@ Blender 5.2.3では `N` パネル → `Relief` → `Generate Relief` から操�
 
 深度解像度の上限は1024、既定値は512です。投影形状の縦横比に合わせて短辺側の頂点数を自動調整します。
 
+## ライブ3Dプレビュー
+
+バージョン1.4.0では `Start Live Preview` を追加しました。既定では128サンプルの軽量な仮レリーフを作り、`Margin`、`Gaussian Blur`、`Depth Gamma`、`Minimum Height`、厚みや高さを変更してから0.2秒後に自動更新します。元メッシュはプレビュー中だけ非表示になり、`Stop`または本生成で自動的に復元されます。最終解像度とプレビュー解像度が異なっても、ブラーの物理的な見え方が近くなるよう半径を換算します。
+
 ## Rhino / STEP向けCADクワッドコピー
 
-バージョン1.3.0では、選択したレリーフをBlender内蔵QuadriFlowで低密度の全四角形メッシュへ再構成する `Create CAD Quad Copy` を追加しました。元オブジェクトは変更せず、Corrective Smoothなどの評価済みモディファイアーを焼き込んだ複製を作ります。
+`Create CAD Quad Copy` は元オブジェクトを変更せず、Corrective Smoothなどの評価済みモディファイアーを焼き込んだ全四角形の複製を作ります。
+
+バージョン1.4.0では、標準QuadriFlowに加えて、オープンソースの [ReQuad / QuadWild bi-MDF](https://github.com/mlstr0m/requad) を使う `Adaptive Detail` バックエンドを既定にしました。曲率の高い細部へ小さいクワッドを集め、平坦部を粗くします。`Detail Adaptivity`で自動配分の強さを変更でき、`Use Density Paint`を有効にするとアクティブなカラー属性の赤を高密度、シアンを低密度として追加指定できます。ReQuadがない環境では従来の `Blender QuadriFlow`へ切り替えられます。
+
+合成微細レリーフを約5,000クワッドへ変換した試験では、細部領域の平均偏差が標準QuadriFlowの0.00460からAdaptive 100%の0.00219へ減り、約52%改善しました。結果はいずれも全フェースがクワッドで、不正な分岐エッジは0でした。
 
 `Preserve Sharp Edges` は既定で有効です。レリーフ面と壁・背面の鋭い境界は、意図的にアンウェルドされた開放シームとして残る場合があります。これは不具合扱いにせず、Rhinoの `ToSubD` で `MeshCreases=Yes` を使ってクリースへ変換するための出力です。完全に閉じたメッシュを優先する場合は `Preserve Sharp Edges` を無効にします。
 

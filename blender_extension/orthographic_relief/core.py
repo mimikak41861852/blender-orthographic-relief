@@ -17,6 +17,7 @@ from mathutils.bvhtree import BVHTree
 
 PROJECTION_AXES = {"X", "-X", "Y", "-Y", "Z", "-Z", "CAMERA"}
 BASE_SHAPES = {"SILHOUETTE", "RECTANGLE"}
+PREVIEW_OBJECT_NAME = "__Orthographic_Relief_Live_Preview__"
 
 
 def _projection_basis(
@@ -644,6 +645,97 @@ def generate_relief(
     }
 
 
+def remove_relief_preview() -> None:
+    """Remove the transient live-preview object and its orphaned mesh."""
+    preview = bpy.data.objects.get(PREVIEW_OBJECT_NAME)
+    if preview is None:
+        return
+    mesh = preview.data if preview.type == "MESH" else None
+    bpy.data.objects.remove(preview, do_unlink=True)
+    if mesh is not None and mesh.users == 0:
+        bpy.data.meshes.remove(mesh)
+
+
+def refresh_relief_preview(
+    source_object: str,
+    projection: str = "Z",
+    preview_resolution: int = 128,
+    final_resolution: int = 512,
+    fit_resolution_to_aspect: bool = True,
+    relief_height: float = 0.25,
+    base_thickness: float = 0.1,
+    base_shape: str = "SILHOUETTE",
+    margin: float = 0.05,
+    blur_radius: float = 1.25,
+    depth_gamma: float = 1.0,
+    minimum_height: float = 0.03,
+    corrective_smooth_factor: float = 0.15,
+    corrective_smooth_iterations: int = 2,
+) -> Dict[str, Any]:
+    """Rebuild a disposable low-resolution relief for interactive tuning."""
+    source = bpy.data.objects.get(source_object)
+    if source is None or source.type != "MESH":
+        raise ValueError("The live-preview source mesh is no longer available")
+
+    preview_resolution = int(max(32, min(256, preview_resolution)))
+    final_resolution = int(max(8, min(1024, final_resolution)))
+    base_shape = base_shape.upper()
+    if base_shape not in BASE_SHAPES:
+        raise ValueError("base_shape must be SILHOUETTE or RECTANGLE")
+
+    projection = projection.upper()
+    right, up, ray_direction = _projection_basis(projection, bpy.context.scene.camera)
+    # Gaussian blur is specified in final-image pixels. Scale its radius so
+    # the lower-resolution preview has the same approximate world-space blur.
+    preview_blur = float(blur_radius) * preview_resolution / final_resolution
+    field = _capture_height_field(
+        source=source,
+        right=right,
+        up=up,
+        ray_direction=ray_direction,
+        resolution_x=preview_resolution,
+        resolution_y=preview_resolution,
+        fit_resolution_to_aspect=fit_resolution_to_aspect,
+        margin=float(max(0.0, min(1.0, margin))),
+        blur_radius=float(max(0.0, min(64.0, preview_blur))),
+        depth_gamma=float(max(0.05, min(10.0, depth_gamma))),
+        minimum_height=float(max(0.0, min(1.0, minimum_height))),
+    )
+
+    remove_relief_preview()
+    preview = _build_relief_mesh(
+        source=source,
+        name=PREVIEW_OBJECT_NAME,
+        field=field,
+        right=right,
+        up=up,
+        ray_direction=ray_direction,
+        relief_height=float(max(1.0e-5, relief_height)),
+        base_thickness=float(max(1.0e-5, base_thickness)),
+        base_shape=base_shape,
+        corrective_smooth_factor=float(
+            max(-10.0, min(10.0, corrective_smooth_factor))
+        ),
+        corrective_smooth_iterations=int(
+            max(0, min(200, corrective_smooth_iterations))
+        ),
+    )
+    preview["relief_live_preview"] = True
+    preview["relief_preview_source"] = source.name
+    preview.hide_render = True
+    preview.show_in_front = True
+    preview.color = (0.18, 0.55, 1.0, 0.72)
+
+    return {
+        "object_name": preview.name,
+        "source_object": source.name,
+        "resolution": [field["resolution_x"], field["resolution_y"]],
+        "vertex_count": len(preview.data.vertices),
+        "face_count": len(preview.data.polygons),
+        "preview_blur_radius": preview_blur,
+    }
+
+
 def quad_remesh_for_cad(
     source_object: Optional[str] = None,
     output_name: Optional[str] = None,
@@ -795,7 +887,35 @@ def quad_remesh_for_cad(
                 "try a different target face count"
             )
 
+        output_bvh = BVHTree.FromPolygons(
+            [vertex.co.copy() for vertex in output.data.vertices],
+            [tuple(polygon.vertices) for polygon in output.data.polygons],
+            all_triangles=False,
+        )
+        coverage_distances: list[float] = []
+        if output_bvh is not None:
+            sample_step = max(1, len(reference_vertices) // 50_000)
+            for vertex in reference_vertices[::sample_step]:
+                nearest = output_bvh.find_nearest(vertex)
+                if nearest is not None:
+                    coverage_distances.append(float(nearest[3]))
+        coverage_distances.sort()
+        coverage_mean = (
+            float(sum(coverage_distances) / len(coverage_distances))
+            if coverage_distances
+            else 0.0
+        )
+        coverage_p95 = (
+            float(coverage_distances[int(0.95 * (len(coverage_distances) - 1))])
+            if coverage_distances
+            else 0.0
+        )
+        coverage_max = (
+            float(max(coverage_distances)) if coverage_distances else 0.0
+        )
+
         output["cad_quad_source"] = source.name
+        output["cad_quad_backend"] = "QUADRIFLOW_NATIVE"
         output["cad_quad_target_faces"] = target_faces
         output["cad_quad_all_quads"] = all_quads
         output["cad_quad_subd_safe"] = subd_safe
@@ -807,6 +927,9 @@ def quad_remesh_for_cad(
         output["cad_quad_preserved_sharp"] = bool(preserve_sharp)
         output["cad_quad_mean_deviation"] = mean_deviation
         output["cad_quad_max_deviation"] = max_deviation
+        output["cad_quad_coverage_mean"] = coverage_mean
+        output["cad_quad_coverage_p95"] = coverage_p95
+        output["cad_quad_coverage_max"] = coverage_max
 
         if reference_mesh.users == 0:
             bpy.data.meshes.remove(reference_mesh)
@@ -828,6 +951,9 @@ def quad_remesh_for_cad(
             "signed_volume": signed_volume,
             "mean_deviation": mean_deviation,
             "max_deviation": max_deviation,
+            "coverage_mean": coverage_mean,
+            "coverage_p95": coverage_p95,
+            "coverage_max": coverage_max,
             "modifiers_applied": bool(apply_modifiers),
             "preserved_sharp": bool(preserve_sharp),
         }
@@ -842,3 +968,176 @@ def quad_remesh_for_cad(
         source.select_set(True)
         bpy.context.view_layer.objects.active = source
         raise
+
+
+def finalize_adaptive_quad_for_cad(
+    source_object: str,
+    output_object: str,
+    target_faces: int,
+    preserve_sharp: bool = True,
+    sharp_angle: float = 35.0,
+) -> Dict[str, Any]:
+    """Validate and annotate a ReQuad result, optionally unwelding creases."""
+    source = bpy.data.objects.get(source_object)
+    output = bpy.data.objects.get(output_object)
+    if source is None or source.type != "MESH":
+        raise ValueError("The adaptive-remesh source mesh is no longer available")
+    if output is None or output.type != "MESH":
+        raise ValueError("The adaptive-remesh output mesh is no longer available")
+
+    split_edge_count = 0
+    if preserve_sharp:
+        threshold = math.radians(float(max(0.0, min(180.0, sharp_angle))))
+        split_mesh = bmesh.new()
+        try:
+            split_mesh.from_mesh(output.data)
+            relief_normal = source.get("relief_undercut_free_direction")
+            if relief_normal is not None and len(relief_normal) == 3:
+                world_normal = Vector(relief_normal).normalized()
+                normal_matrix = output.matrix_world.to_3x3().inverted().transposed()
+
+                def face_region(face):
+                    transformed = (normal_matrix @ face.normal).normalized()
+                    alignment = transformed.dot(world_normal)
+                    if alignment > 0.25:
+                        return "FRONT"
+                    if alignment < -0.25:
+                        return "BACK"
+                    return "WALL"
+
+                feature_edges = [
+                    edge
+                    for edge in split_mesh.edges
+                    if len(edge.link_faces) == 2
+                    and face_region(edge.link_faces[0])
+                    != face_region(edge.link_faces[1])
+                    and edge.calc_face_angle(0.0) >= threshold
+                ]
+            else:
+                feature_edges = [
+                    edge
+                    for edge in split_mesh.edges
+                    if len(edge.link_faces) == 2
+                    and edge.calc_face_angle(0.0) >= threshold
+                ]
+            split_edge_count = len(feature_edges)
+            if feature_edges:
+                bmesh.ops.split_edges(split_mesh, edges=feature_edges)
+                split_mesh.to_mesh(output.data)
+                output.data.update(calc_edges=True)
+        finally:
+            split_mesh.free()
+
+    reference_vertices, reference_polygons = _evaluated_world_geometry(source)
+    reference_bvh = BVHTree.FromPolygons(
+        reference_vertices,
+        reference_polygons,
+        all_triangles=False,
+    )
+
+    check_mesh = bmesh.new()
+    try:
+        check_mesh.from_mesh(output.data)
+        non_quad_face_count = sum(
+            1 for face in check_mesh.faces if len(face.verts) != 4
+        )
+        boundary_edge_count = sum(
+            1 for edge in check_mesh.edges if len(edge.link_faces) == 1
+        )
+        invalid_edge_count = sum(
+            1 for edge in check_mesh.edges if len(edge.link_faces) not in {1, 2}
+        )
+        isolated_vertex_count = sum(
+            1 for vertex in check_mesh.verts if not vertex.link_edges
+        )
+    finally:
+        check_mesh.free()
+
+    distances: list[float] = []
+    if reference_bvh is not None:
+        matrix = output.matrix_world
+        for vertex in output.data.vertices:
+            nearest = reference_bvh.find_nearest(matrix @ vertex.co)
+            if nearest is not None:
+                distances.append(float(nearest[3]))
+    mean_deviation = float(sum(distances) / len(distances)) if distances else 0.0
+    max_deviation = float(max(distances)) if distances else 0.0
+
+    output_world_vertices = [
+        output.matrix_world @ vertex.co for vertex in output.data.vertices
+    ]
+    output_polygons = [tuple(polygon.vertices) for polygon in output.data.polygons]
+    output_bvh = BVHTree.FromPolygons(
+        output_world_vertices,
+        output_polygons,
+        all_triangles=False,
+    )
+    coverage_distances: list[float] = []
+    if output_bvh is not None:
+        sample_step = max(1, len(reference_vertices) // 50_000)
+        for vertex in reference_vertices[::sample_step]:
+            nearest = output_bvh.find_nearest(vertex)
+            if nearest is not None:
+                coverage_distances.append(float(nearest[3]))
+    coverage_distances.sort()
+    coverage_mean = (
+        float(sum(coverage_distances) / len(coverage_distances))
+        if coverage_distances
+        else 0.0
+    )
+    coverage_p95 = (
+        float(coverage_distances[int(0.95 * (len(coverage_distances) - 1))])
+        if coverage_distances
+        else 0.0
+    )
+    coverage_max = float(max(coverage_distances)) if coverage_distances else 0.0
+
+    all_quads = bool(output.data.polygons) and non_quad_face_count == 0
+    subd_safe = (
+        all_quads
+        and invalid_edge_count == 0
+        and isolated_vertex_count == 0
+    )
+    closed_manifold = subd_safe and boundary_edge_count == 0
+
+    output["cad_quad_source"] = source.name
+    output["cad_quad_backend"] = "REQUAD_ADAPTIVE"
+    output["cad_quad_target_faces"] = int(target_faces)
+    output["cad_quad_all_quads"] = all_quads
+    output["cad_quad_subd_safe"] = subd_safe
+    output["cad_quad_closed_manifold"] = closed_manifold
+    output["cad_quad_manifold"] = closed_manifold
+    output["cad_quad_boundary_edges"] = boundary_edge_count
+    output["cad_quad_invalid_edges"] = invalid_edge_count
+    output["cad_quad_isolated_vertices"] = isolated_vertex_count
+    output["cad_quad_non_quad_faces"] = non_quad_face_count
+    output["cad_quad_feature_edges_split"] = split_edge_count
+    output["cad_quad_preserved_sharp"] = bool(preserve_sharp)
+    output["cad_quad_mean_deviation"] = mean_deviation
+    output["cad_quad_max_deviation"] = max_deviation
+    output["cad_quad_coverage_mean"] = coverage_mean
+    output["cad_quad_coverage_p95"] = coverage_p95
+    output["cad_quad_coverage_max"] = coverage_max
+
+    return {
+        "object_name": output.name,
+        "source_object": source.name,
+        "target_face_count": int(target_faces),
+        "face_count": len(output.data.polygons),
+        "vertex_count": len(output.data.vertices),
+        "all_quads": all_quads,
+        "subd_safe": subd_safe,
+        "closed_manifold": closed_manifold,
+        "boundary_edge_count": boundary_edge_count,
+        "invalid_edge_count": invalid_edge_count,
+        "isolated_vertex_count": isolated_vertex_count,
+        "non_quad_face_count": non_quad_face_count,
+        "split_edge_count": split_edge_count,
+        "mean_deviation": mean_deviation,
+        "max_deviation": max_deviation,
+        "coverage_mean": coverage_mean,
+        "coverage_p95": coverage_p95,
+        "coverage_max": coverage_max,
+        "preserved_sharp": bool(preserve_sharp),
+        "backend": "REQUAD_ADAPTIVE",
+    }

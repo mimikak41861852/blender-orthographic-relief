@@ -5,8 +5,8 @@
 配布する本体と検証用チェックサムは次の2点です。
 
 ```text
-dist/orthographic_relief-1.3.0.zip
-dist/orthographic_relief-1.3.0.zip.sha256
+dist/orthographic_relief-1.4.0.zip
+dist/orthographic_relief-1.4.0.zip.sha256
 ```
 
 Blender 5.2.3 LTSの公式Extensionビルダーで生成し、完成ZIPを公式バリデーターで検証しています。対象はBlender 5.2.0以降です。
@@ -25,20 +25,30 @@ MCPサーバー、TCPソケット、ネットワーク接続、テレメトリ�
 1. Blender 5.2以降を起動します。
 2. `Edit` → `Preferences` → `Get Extensions` を開きます。
 3. 右上メニューから `Install from Disk...` を選びます。
-4. `orthographic_relief-1.3.0.zip` を指定します。
+4. `orthographic_relief-1.4.0.zip` を指定します。
 5. 3D Viewでメッシュを選択し、`N` パネル → `Relief` を開きます。
 6. `Base Shape` は通常 `Source Silhouette` のまま、投影方向や寸法を設定して `Generate Relief` を押します。
 
 `Source Silhouette` は元メッシュの投影外形に沿った背面と側壁を持つ閉じたソリッドを作ります。従来の矩形プレートが必要な場合は `Rectangle` を選択します。アンダーカットなしの保証は選択した投影方向に対して適用されます。
 
+`Start Live Preview`を押すと低解像度3Dプレビューが始まります。Margin、Blur、Depth Gammaなどは0.2秒のデバウンス後に自動反映されます。`Stop`で元メッシュへ戻り、そのまま`Generate Relief`を押した場合もプレビューは自動終了します。
+
+## Adaptive Detailバックエンド
+
+細部保持を優先する場合は、GPL-3.0の公式 [ReQuad Release](https://github.com/mlstr0m/requad/releases/latest) からWindows x64版ZIPを入手し、同じ`Install from Disk...`で別Extensionとしてインストール・有効化します。Orthographic ReliefはReQuad本体や外部バイナリを同梱・再配布せず、インストール済みの公式Extensionをローカルで呼び出します。
+
+ReQuadを使わない場合は、`Remesher`を`Blender QuadriFlow`へ変更すれば本Extension単体で動作します。
+
 ## Rhino / STEP用のクワッド作成
 
 1. 生成したレリーフを選択します。
 2. `CAD / Rhino Quad Mesh` の `Target Quad Faces` を指定します。
-3. `Create CAD Quad Copy` を押します。
-4. 作られた複製をOBJで書き出します。STLはクワッドを三角形化するため使用しません。
-5. RhinoでOBJを読み込み、`ToSubD` を `MeshCreases=Yes` で実行します。
-6. `ToNURBS` でNURBSへ変換し、STEPを書き出します。
+3. 通常は`Adaptive Detail (ReQuad)`のまま`Detail Adaptivity`を調整します。100%は細部優先、0%は均一密度です。
+4. 必要なら`Use Density Paint`を有効にします。アクティブカラー属性の赤が高密度、シアンが低密度です。
+5. `Create Adaptive CAD Quad Copy` を押します。
+6. 作られた複製をOBJで書き出します。STLはクワッドを三角形化するため使用しません。
+7. RhinoでOBJを読み込み、`ToSubD` を `MeshCreases=Yes` で実行します。
+8. `ToNURBS` でNURBSへ変換し、STEPを書き出します。
 
 `Preserve Sharp Edges` は既定で有効です。壁との境界などにできる開放シームは、Rhinoでクリースとして扱うため意図的に許可しています。全フェースが四角形で、3面以上が集まる分岐エッジや孤立頂点がなければ合格です。閉じたソリッドが必要な場合だけ、この設定を無効にしてください。
 

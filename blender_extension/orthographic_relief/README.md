@@ -33,11 +33,25 @@ the active scene camera orientation.
 
 The undercut-free guarantee applies only along the selected projection direction.
 
+## Live 3D preview
+
+Press **Start Live Preview** to create a lightweight 3D relief, 128 samples by
+default. Margin, Gaussian Blur, Depth Gamma, Minimum Height, and geometry settings
+refresh automatically after a 0.2 second debounce. The source object is restored
+when preview stops or the final relief is generated. Blur radius is scaled to
+approximate the final resolution's world-space appearance.
+
 ## CAD / Rhino quad copy
 
-Select a relief and press **Create CAD Quad Copy** to bake its evaluated
-modifiers and rebuild a lower-density, all-quad duplicate with Blender's bundled
-QuadriFlow remesher. The original object is not changed.
+Select a relief and press **Create Adaptive CAD Quad Copy** to bake its evaluated
+modifiers and rebuild a lower-density, all-quad duplicate. The original object is
+not changed.
+
+**Adaptive Detail (ReQuad)** is the default backend when the separately installed
+[ReQuad extension](https://github.com/mlstr0m/requad/releases/latest) is enabled.
+It uses QuadWild bi-MDF, places smaller quads on curved detail, supports red/cyan
+color-attribute density painting, and re-projects relaxed vertices to the source.
+The bundled **Blender QuadriFlow** backend remains available without dependencies.
 
 **Preserve Sharp Edges** is enabled by default. Sharp transitions around the
 relief, side wall, and back may become intentional unwelded boundary seams. These
@@ -52,8 +66,10 @@ the quad mesh.
 ## Privacy and connectivity
 
 This extension has no MCP integration, network listener, telemetry, or background
-service. It runs only after a user presses the generate button. File permission is
-declared solely because the optional PNG export writes depth images to disk.
+service. Work starts only after the user starts Live Preview or presses a generate
+button. The optional ReQuad backend launches ReQuad's separately installed local
+engine and does not add network access. File permission is declared solely because
+the optional PNG export writes depth images to disk.
 
 ## License
 
